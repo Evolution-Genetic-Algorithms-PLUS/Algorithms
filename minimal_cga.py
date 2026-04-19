@@ -17,6 +17,7 @@ class CGA:
             winner, looser = self.compete(a, b)
 
             self.update(winner, looser)
+            i += 1
 
             if keep_history:
                 history.append((i, self.p.copy(), a, b))
