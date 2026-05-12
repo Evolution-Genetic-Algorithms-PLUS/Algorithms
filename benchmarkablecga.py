@@ -1,3 +1,8 @@
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+from circlepacking import CirclePackingCGA
+
 class BenchmarkableCGA(CirclePackingCGA):
     def execute_with_metrics(self, max_iter=2000):
         start_time = time.time()
