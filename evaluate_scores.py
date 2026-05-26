@@ -195,18 +195,41 @@ def plot_grouped_benchmark_plots(raw_data: dict, out_dir: str = 'results') -> No
     for axis, name in zip(axes, benchmark_order):
         item = raw_data[name]
         histories = np.array(item['histories'], dtype=float)
+        finals = np.array(item['finals'], dtype=float)
         mean_history = np.mean(histories, axis=0)
         std_history = np.std(histories, axis=0)
+        mean_final = float(np.mean(finals))
+        if name == 'Circle_Packing':
+            best_final = float(np.min(finals))
+            best_text = f'Best final fitness: {best_final:.3f}'
+        else:
+            best_final = float(np.max(finals))
+            best_text = f'Best final fitness: {best_final:.3f}'
         x_axis = np.arange(len(mean_history)) * item['record_stride']
 
-        axis.plot(x_axis, mean_history, color=color_map[name], label='Mean')
+        axis.plot(x_axis, mean_history, color=color_map[name])
         axis.fill_between(x_axis, mean_history - std_history, mean_history + std_history, alpha=0.25, color=color_map[name])
+
+        # Reference line: average final fitness/penalty over runs.
+        axis.axhline(y=mean_final, color='gray', linestyle=':', linewidth=1.5)
+
+        if name == 'Deceptive_Trap':
+            axis.axhline(y=100, color='black', linestyle='--', linewidth=1.5, label='Global optimum (100)')
+
         axis.set_title(display_names[name])
         axis.set_xlabel('Iterations')
         axis.grid(True, linestyle='--', alpha=0.4)
-        axis.legend(loc='best')
+        axis.text(
+            0.02,
+            0.96,
+            best_text,
+            transform=axis.transAxes,
+            va='top',
+            fontsize=9,
+            bbox={'facecolor': 'white', 'alpha': 0.7, 'edgecolor': 'none'}
+        )
 
-        y_label = 'Penalty Score' if name == 'Circle_Packing' else 'Fitness Score'
+        y_label = 'Fitness Score'
         axis.set_ylabel(y_label)
 
     fig.suptitle('Fitness vs Iterations Across Benchmarks', y=1.02)
@@ -215,17 +238,20 @@ def plot_grouped_benchmark_plots(raw_data: dict, out_dir: str = 'results') -> No
     fig.savefig(fitness_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
 
-    # Final fitness distribution boxplot: grouped by benchmark.
-    plt.figure(figsize=(9, 5))
-    final_data = [raw_data[name]['finals'] for name in benchmark_order]
-    plt.boxplot(final_data, tick_labels=[display_names[name] for name in benchmark_order], showmeans=True)
-    plt.ylabel('Final Score / Penalty')
-    plt.title('Final Fitness Distribution by Benchmark')
-    plt.grid(axis='y', linestyle='--', alpha=0.4)
-    plt.tight_layout()
+    # Final fitness distribution boxplots with separate y-axes per benchmark.
+    fig, axes = plt.subplots(1, 3, figsize=(12, 5), sharey=False)
+    for axis, name in zip(axes, benchmark_order):
+        finals = np.array(raw_data[name]['finals'], dtype=float)
+        axis.boxplot([finals], tick_labels=[display_names[name]], showmeans=True)
+        axis.set_title(display_names[name])
+        axis.set_ylabel('Final Fitness Score')
+        axis.grid(axis='y', linestyle='--', alpha=0.4)
+
+    fig.suptitle('Final Fitness Distribution by Benchmark', y=1.02)
+    fig.tight_layout()
     final_path = os.path.join(out_dir, 'benchmark_final_fitness_distribution.png')
-    plt.savefig(final_path, dpi=200)
-    plt.close()
+    fig.savefig(final_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
 
     # Convergence speed boxplot: grouped by benchmark.
     plt.figure(figsize=(9, 5))
