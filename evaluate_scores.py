@@ -7,51 +7,99 @@ from deceptivetrapcga import BenchmarkableDeceptiveTrapCGA
 from benchmarkablecga import BenchmarkableCGA
 
 
-def compute_scores(final_vals, histories, iterations, problem_type, params, max_iter):
-    # final_vals: array of final fitness/penalty per run
+def compute_scores(final_vals, histories, iterations, problem_type, params, max_iter, 
+                   final_vectors=None, vector_histories=None):
+    # final_vals: array of final fitness/penalty per run (for backward compatibility)
     # histories: list/array of per-run arrays (recorded fitness history)
     # iterations: array of iterations-to-convergence per run
     # problem_type: 'max' or 'min'
     # params: dict with keys for global/local/worst definitions where applicable
+    # final_vectors: array of final output vectors (bitstrings) per run - if provided, used for S1/S2
+    # vector_histories: list of per-run vectors (bitstrings) history - if provided, used for S2
 
     runs = len(final_vals)
 
-    # Determine global and worst values
+    # Use vector-based scoring if vectors are provided, otherwise fall back to fitness-based
+    use_vectors = final_vectors is not None and len(final_vectors) == runs
+
+    # Determine global and worst values/vectors
     V_global = params.get('V_global')
     V_worst = params.get('V_worst')
     V_local = params.get('V_local')
     V_worst_local = params.get('V_worst_local')
 
-    # If worst values are not provided, use observed extremes
-    if V_worst is None:
-        V_worst = np.max(final_vals) if problem_type == 'min' else np.min(final_vals)
-    if V_worst_local is None and V_local is not None:
-        # use extreme from histories
-        all_hist = np.concatenate(histories) if len(histories) > 0 else final_vals
-        V_worst_local = np.max(all_hist) if problem_type == 'min' else np.min(all_hist)
+    # For vector-based scoring
+    Vector_global = params.get('Vector_global')
+    Vector_worst = params.get('Vector_worst')
+    Vector_local = params.get('Vector_local')
+    Vector_worst_local = params.get('Vector_worst_local')
 
-    # S1 per-run
-    S1 = []
-    for v in final_vals:
-        denom = abs(V_worst - V_global) if V_worst is not None and V_global is not None else 1.0
-        s = 1 - abs(v - V_global) / denom if denom != 0 else 1.0
-        S1.append(s)
-    S1 = np.clip(S1, 0.0, 1.0)
-
-    # S2: local score using recorded history values (if local defined)
-    if V_local is None:
-        # fallback: set local score equal to global score mean
-        S2 = np.array(S1)
-    else:
-        ratios = []
-        for hist in histories:
-            denom = abs(V_worst_local - V_local) if V_worst_local is not None else 1.0
-            if denom == 0:
-                ratios.append(0.0)
+    if use_vectors:
+        # S1: Based on Hamming distance from global optimum vector
+        S1 = []
+        for vec in final_vectors:
+            # Hamming distance between vec and Vector_global
+            if Vector_global is not None:
+                hamming_dist = np.sum(np.abs(vec - Vector_global))
+                hamming_range = np.sum(np.abs(Vector_worst - Vector_global)) if Vector_worst is not None else 1.0
+                s = 1 - hamming_dist / hamming_range if hamming_range != 0 else 1.0
             else:
-                ratios.append(np.mean(np.abs(hist - V_local) / denom))
-        S2 = 1 - np.array(ratios)
-        S2 = np.clip(S2, 0.0, 1.0)
+                s = 1.0
+            S1.append(s)
+        S1 = np.clip(S1, 0.0, 1.0)
+
+        # S2: Based on Hamming distances from local optimum vector
+        if Vector_local is None:
+            # fallback: set local score equal to global score
+            S2 = np.array(S1)
+        else:
+            ratios = []
+            for vec_hist in vector_histories:
+                # vec_hist is a list/array of vectors across iterations
+                hamming_dists = []
+                for vec in vec_hist:
+                    dist = np.sum(np.abs(vec - Vector_local))
+                    hamming_dists.append(dist)
+                
+                range_denom = np.sum(np.abs(Vector_worst_local - Vector_local)) if Vector_worst_local is not None else 1.0
+                if range_denom == 0:
+                    ratios.append(0.0)
+                else:
+                    ratios.append(np.mean(hamming_dists) / range_denom)
+            S2 = 1 - np.array(ratios)
+            S2 = np.clip(S2, 0.0, 1.0)
+    else:
+        # Original fitness-based scoring for backward compatibility
+        # If worst values are not provided, use observed extremes
+        if V_worst is None:
+            V_worst = np.max(final_vals) if problem_type == 'min' else np.min(final_vals)
+        if V_worst_local is None and V_local is not None:
+            # use extreme from histories
+            all_hist = np.concatenate(histories) if len(histories) > 0 else final_vals
+            V_worst_local = np.max(all_hist) if problem_type == 'min' else np.min(all_hist)
+
+        # S1 per-run
+        S1 = []
+        for v in final_vals:
+            denom = abs(V_worst - V_global) if V_worst is not None and V_global is not None else 1.0
+            s = 1 - abs(v - V_global) / denom if denom != 0 else 1.0
+            S1.append(s)
+        S1 = np.clip(S1, 0.0, 1.0)
+
+        # S2: local score using recorded history values (if local defined)
+        if V_local is None:
+            # fallback: set local score equal to global score mean
+            S2 = np.array(S1)
+        else:
+            ratios = []
+            for hist in histories:
+                denom = abs(V_worst_local - V_local) if V_worst_local is not None else 1.0
+                if denom == 0:
+                    ratios.append(0.0)
+                else:
+                    ratios.append(np.mean(np.abs(hist - V_local) / denom))
+            S2 = 1 - np.array(ratios)
+            S2 = np.clip(S2, 0.0, 1.0)
 
     # S3: convergence score per run
     S3 = 1 - (np.array(iterations) / float(max_iter))
@@ -384,6 +432,8 @@ def eval_onemax(runs=30, length=100, pop_size=100, max_iter=5000):
     finals = []
     histories = []
     iters = []
+    final_vectors = []
+    vector_histories = []
     for seed in range(runs):
         np.random.seed(seed)
         cga = BenchmarkableOneMaxCGA(length=length, population_size=pop_size)
@@ -391,24 +441,41 @@ def eval_onemax(runs=30, length=100, pop_size=100, max_iter=5000):
         finals.append(metrics['final_fitness'])
         histories.append(metrics['fitness_history'])
         iters.append(metrics['iterations'])
+        final_vectors.append(metrics['final_vector'].copy())
+        vector_histories.append(metrics['vector_history'].copy())
 
     finals = np.array(finals)
     iters = np.array(iters)
+    final_vectors = np.array(final_vectors)
+
+    # Define reference vectors for vector-based scoring
+    # For OneMax:
+    # - Global optimum vector: all ones
+    # - Worst vector: all zeros
+    vector_global = np.ones(length, dtype=int)
+    vector_worst = np.zeros(length, dtype=int)
 
     params = {
         'V_global': length,
         'V_worst': 0,
         'V_local': None,
-        'V_worst_local': None
+        'V_worst_local': None,
+        'Vector_global': vector_global,
+        'Vector_worst': vector_worst,
+        'Vector_local': None,
+        'Vector_worst_local': None
     }
 
-    return compute_scores(finals, histories, iters, problem_type='max', params=params, max_iter=max_iter), finals, histories, iters
+    return compute_scores(finals, histories, iters, problem_type='max', params=params, max_iter=max_iter,
+                          final_vectors=final_vectors, vector_histories=vector_histories), finals, histories, iters
 
 
 def eval_deceptive_trap(runs=30, length=100, k=5, pop_size=1000, max_iter=20000):
     finals = []
     histories = []
     iters = []
+    final_vectors = []  # Store the final output bitstrings
+    vector_histories = []  # Store the vector histories
     m = length // k
     for seed in range(runs):
         np.random.seed(seed)
@@ -417,18 +484,37 @@ def eval_deceptive_trap(runs=30, length=100, k=5, pop_size=1000, max_iter=20000)
         finals.append(metrics['final_fitness'])
         histories.append(metrics['fitness_history'])
         iters.append(metrics['iterations'])
+        # Get the final output vector and vector history from metrics
+        final_vectors.append(metrics['final_vector'].copy())
+        vector_histories.append(metrics['vector_history'].copy())
 
     finals = np.array(finals)
     iters = np.array(iters)
+    final_vectors = np.array(final_vectors)
+
+    # Define reference vectors for vector-based scoring
+    # For deceptive trap:
+    # - Global optimum vector: all ones
+    # - Deceptive local optimum vector: all zeros
+    # - Worst vector (structurally): all zeros (same as deceptive, but farthest from global in Hamming space)
+    vector_global = np.ones(length, dtype=int)  # All ones
+    vector_worst = np.zeros(length, dtype=int)   # All zeros
+    vector_local = np.ones(length, dtype=int)    # Global optimum as target for S2
+    vector_worst_local = np.zeros(length, dtype=int)  # Deceptive optimum as worst-local
 
     params = {
-        'V_global': length,                # all ones
-        'V_worst': 0,                      # theoretical worst
-        'V_local': m * (k - 1),            # deceptive local optimum (all zeros)
-        'V_worst_local': 0
+        'V_global': length,                # all ones (100) - fitness value
+        'V_worst': 0,                      # theoretical worst - fitness value
+        'V_local': length,                 # global optimum as target for S2 - fitness value
+        'V_worst_local': 0,                # theoretical worst - fitness value
+        'Vector_global': vector_global,    # All ones - reference vector
+        'Vector_worst': vector_worst,      # All zeros - reference vector
+        'Vector_local': vector_local,      # All ones - reference vector for S2
+        'Vector_worst_local': vector_worst_local  # All zeros - reference vector for S2
     }
 
-    return compute_scores(finals, histories, iters, problem_type='max', params=params, max_iter=max_iter), finals, histories, iters
+    return compute_scores(finals, histories, iters, problem_type='max', params=params, max_iter=max_iter,
+                          final_vectors=final_vectors, vector_histories=vector_histories), finals, histories, iters
 
 
 def eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_iter=2000):
@@ -452,6 +538,8 @@ def eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_i
 
     # For circle packing lower is better; global optimum = 0 penalty.
     # Use observed worst as normalization denominator if not known.
+    # Circle packing uses fitness-based scoring (not vector-based) since the fitness
+    # depends on decoded circle positions, not directly on the bitstring structure.
     params = {
         'V_global': 0.0,
         'V_worst': float(np.max(finals)),

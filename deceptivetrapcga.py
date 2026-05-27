@@ -53,16 +53,18 @@ class BenchmarkableDeceptiveTrapCGA(DeceptiveTrapCGA):
         start_time = time.time()
         converged_iteration = max_iter
         fitness_history = []
+        vector_history = []  # Track the best vectors at each recorded step
 
         for i in range(max_iter):
             a, b = self.generate(), self.generate()
             winner, loser = self.compete(a, b)
             self.update(winner, loser)
 
-            # Record fitness every 50 iterations to save computation time over a longer run
+            # Record fitness and vector every 50 iterations to save computation time over a longer run
             if i % 50 == 0:
                 best_bits = (self.p > 0.5).astype(int)
                 fitness_history.append(self.calculate_fitness(best_bits))
+                vector_history.append(best_bits.copy())
 
             # Check for full convergence
             if np.all((self.p <= 0.0) | (self.p >= 1.0)):
@@ -71,6 +73,7 @@ class BenchmarkableDeceptiveTrapCGA(DeceptiveTrapCGA):
                 final_fit = self.calculate_fitness(best_bits)
                 while len(fitness_history) < max_iter // 50:
                     fitness_history.append(final_fit)
+                    vector_history.append(best_bits.copy())
                 break
 
         execution_time = time.time() - start_time
@@ -79,12 +82,15 @@ class BenchmarkableDeceptiveTrapCGA(DeceptiveTrapCGA):
 
         while len(fitness_history) < max_iter // 50:
             fitness_history.append(final_fitness)
+            vector_history.append(best_bits.copy())
 
         return {
             "iterations": converged_iteration,
             "final_fitness": final_fitness,
+            "final_vector": best_bits,
             "time": execution_time,
-            "fitness_history": np.array(fitness_history)
+            "fitness_history": np.array(fitness_history),
+            "vector_history": np.array(vector_history)
         }
 
 def run_visualized_benchmark(length=100, k=5, pop_size=1000, max_iter=20000, runs=30):
@@ -135,14 +141,14 @@ def run_visualized_benchmark(length=100, k=5, pop_size=1000, max_iter=20000, run
 
     # --- PLOT 2: Final Fitness Distribution ---
     plt.figure(figsize=(6, 5))
-    plt.boxplot([fitnesses], labels=["Deceptive Trap"])
+    plt.boxplot([fitnesses], tick_labels=["Deceptive Trap"])
     plt.axhline(y=100, color='g', linestyle='-', alpha=0.5)
     plt.axhline(y=80, color='orange', linestyle='--', alpha=0.5)
     plt.title(f"Final Fitness Distribution (Pop={pop_size})", fontsize=14)
     plt.ylabel("Final Fitness Score", fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
-    plt.savefig("trap_final_fitness_distribution.png")
+    plt.savefig("trap_final_fitness_distribution_new.png")
 
     print("\nVisualizations saved successfully!")
 

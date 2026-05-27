@@ -8,18 +8,20 @@ class BenchmarkableCGA(CirclePackingCGA):
         start_time = time.time()
         converged_iteration = max_iter
 
-        # Track fitness history for the line plot
+        # Track fitness history and vector history for the line plot
         fitness_history = []
+        vector_history = []
 
         for i in range(max_iter):
             a, b = self.generate(), self.generate()
             winner, loser = self.compete(a, b)
             self.update(winner, loser)
 
-            # Record fitness every 10 iterations to save heavy computation time
+            # Record fitness and vector every 10 iterations to save heavy computation time
             if i % 10 == 0:
                 best_bits = (self.p > 0.5).astype(int)
                 fitness_history.append(self.calculate_fitness(best_bits))
+                vector_history.append(best_bits.copy())
 
             if np.all((self.p == 0) | (self.p == 1)):
                 converged_iteration = i
@@ -29,6 +31,7 @@ class BenchmarkableCGA(CirclePackingCGA):
                 final_fit = self.calculate_fitness(best_bits)
                 while len(fitness_history) < max_iter // 10:
                     fitness_history.append(final_fit)
+                    vector_history.append(best_bits.copy())
                 break
 
         execution_time = time.time() - start_time
@@ -38,12 +41,15 @@ class BenchmarkableCGA(CirclePackingCGA):
         # Ensure array is full if it exits naturally
         while len(fitness_history) < max_iter // 10:
             fitness_history.append(final_penalty)
+            vector_history.append(best_bits.copy())
 
         return {
             "iterations": converged_iteration,
             "final_penalty": final_penalty,
+            "final_vector": best_bits,
             "time": execution_time,
-            "fitness_history": np.array(fitness_history)
+            "fitness_history": np.array(fitness_history),
+            "vector_history": np.array(vector_history)
         }
 
 def run_visualized_benchmark(num_circles=10, radius=0.1, pop_size=100, max_iter=10000, runs=30):
