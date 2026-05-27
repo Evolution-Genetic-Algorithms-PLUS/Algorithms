@@ -270,6 +270,53 @@ def plot_grouped_benchmark_plots(raw_data: dict, out_dir: str = 'results') -> No
     print(f'Visualization saved to: {iter_path}')
 
 
+def plot_best_circle_packing_from_cache(raw_data: dict, out_dir: str = 'results') -> str | None:
+    """Plot the best cached Circle Packing solution (lowest final fitness)."""
+    circle_data = raw_data.get('Circle_Packing', {})
+    centers_list = circle_data.get('centers')
+    finals = circle_data.get('finals')
+
+    if not centers_list or not finals:
+        print('Skipping best circle layout plot: missing Circle_Packing centers/finals in cache.')
+        return None
+
+    best_idx = int(np.argmin(np.array(finals, dtype=float)))
+    best_centers = np.array(centers_list[best_idx], dtype=float)
+    best_fitness = float(finals[best_idx])
+
+    radius = 0.1
+    num_circles = int(best_centers.shape[0])
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect('equal')
+    ax.set_title(f"Best Circle Packing (N={num_circles}, R={radius})")
+
+    for x, y in best_centers:
+        circle = plt.Circle((x, y), radius, color='teal', alpha=0.6, ec='black')
+        ax.add_patch(circle)
+
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.text(
+        0.02,
+        0.98,
+        f"Best final fitness: {best_fitness:.3f}",
+        transform=ax.transAxes,
+        va='top',
+        fontsize=10,
+        bbox={'facecolor': 'white', 'alpha': 0.75, 'edgecolor': 'none'}
+    )
+
+    fig.tight_layout()
+    out_path = os.path.join(out_dir, 'best_circle_packing_solution.png')
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+    print(f'Visualization saved to: {out_path}')
+    return out_path
+
+
 def plot_results(results_dir: str = 'results', out_dir: str = 'results') -> None:
     """Create presentation-friendly visualizations from saved benchmark JSON files."""
     os.makedirs(out_dir, exist_ok=True)
@@ -388,13 +435,17 @@ def eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_i
     finals = []
     histories = []
     iters = []
+    centers_per_run = []
     for seed in range(runs):
         np.random.seed(seed)
         cga = BenchmarkableCGA(num_circles=num_circles, radius=radius, population_size=pop_size)
         metrics = cga.execute_with_metrics(max_iter=max_iter)
+        best_bits = (cga.p > 0.5).astype(int)
+        centers = cga.decode(best_bits)
         finals.append(metrics['final_penalty'])
         histories.append(metrics['fitness_history'])
         iters.append(metrics['iterations'])
+        centers_per_run.append(centers)
 
     finals = np.array(finals)
     iters = np.array(iters)
@@ -408,7 +459,13 @@ def eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_i
         'V_worst_local': None
     }
 
-    return compute_scores(finals, histories, iters, problem_type='min', params=params, max_iter=max_iter), finals, histories, iters
+    return (
+        compute_scores(finals, histories, iters, problem_type='min', params=params, max_iter=max_iter),
+        finals,
+        histories,
+        iters,
+        centers_per_run,
+    )
 
 
 if __name__ == '__main__':
@@ -427,7 +484,7 @@ if __name__ == '__main__':
         summarize_and_save('Deceptive_Trap', trap_scores, max_iter=20000, out_dir='results')
 
         print('\nEvaluating Circle Packing (N=30, r=0.1, runs=30, max_iter=50000)...')
-        cp_scores, cp_finals, cp_histories, cp_iters = eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_iter=50000)
+        cp_scores, cp_finals, cp_histories, cp_iters, cp_centers = eval_circle_packing(runs=30, num_circles=30, radius=0.1, pop_size=200, max_iter=50000)
         summarize_and_save('Circle_Packing', cp_scores, max_iter=50000, out_dir='results')
 
         raw_data = {
@@ -447,6 +504,7 @@ if __name__ == '__main__':
                 'finals': cp_finals.tolist(),
                 'histories': [hist.tolist() for hist in cp_histories],
                 'iterations': cp_iters.tolist(),
+                'centers': [centers.tolist() for centers in cp_centers],
                 'record_stride': 10,
             },
         }
@@ -454,3 +512,4 @@ if __name__ == '__main__':
 
     plot_results(results_dir='results', out_dir='results')
     plot_grouped_benchmark_plots(raw_data, out_dir='results')
+    plot_best_circle_packing_from_cache(raw_data, out_dir='results')
